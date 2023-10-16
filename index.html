@@ -173,8 +173,9 @@
         // Initial content
         rotateContent();
 
-        // Set a timer to rotate the content every 3 seconds (3000 milliseconds)
-        setInterval(rotateContent, 9000);
+        const rotationInterval = 30000;
+        // Set a timer to rotate the content every 30 seconds (30000 milliseconds)
+        setInterval(rotateContent, rotationInterval);
     </script>
 </head>
 <body>
@@ -184,7 +185,7 @@
 
 
             let imageIndex = 0;
-            const rotationInterval = 6000; // Rotate every 6 seconds (6000 milliseconds)
+            const rotationInterval = 30000; // Rotate every 30 seconds (30000 milliseconds)
 
             function rotateBackgroundImage() {
                 const imageUrl = `url(tiles/${images[imageIndex]})`;
