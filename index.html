@@ -30,22 +30,11 @@
             const imagesFolder = 'tiles/';
             const imageCount = 2; // The number of pattern background images
 
-            // Create an array of background image URLs
-            const backgroundUrls = [];
-            for (let i = 1; i <= imageCount; i++) {
-                backgroundUrls.push(imagesFolder + i + '.png');
-            }
+        // Generate a random number to select a random image
+        const randomIndex = Math.floor(Math.random() * images.length);
 
-            // Change the background image every 5 seconds
-            let index = 0;
-            setInterval(() => {
-                document.body.style.backgroundImage = `url(${backgroundUrls[index])`;
-                index = (index + 1) % imageCount;
-            }, 5000);
-        }
-
-        // Call the preloadImages function to set up background image cycling
-        preloadImages();
+        // Set the background image to a randomly selected image
+        document.body.style.backgroundImage = `url(tiles/${images[randomIndex]})`;
     </script>
 </body>
 </html>
