@@ -2,131 +2,554 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tile Gallery</title>
-    <!-- Tailwind CSS for rapid styling -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Vital for preventing native browser zoom so our custom canvas zoom works -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Some random tiles</title>
     <style>
-        /* Custom fade-in animation for images as they load */
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+        :root {
+            --font-stack: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
-        .tile-animate {
-            animation: fadeIn 0.5s ease-out forwards;
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden; /* Prevent native scrolling */
+            background-color: #111;
+            font-family: var(--font-stack);
+            touch-action: none; /* Disables browser handling of gestures to allow custom JS handling */
         }
-        
-        /* Smooth hover transition */
-        .tile-card {
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
+
+        /* The canvas sits behind everything */
+        #bg-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
         }
-        .tile-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-            z-index: 10;
+
+        #overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            pointer-events: none; /* Let clicks pass through to canvas */
+            background: radial-gradient(circle, rgba(0,0,0,0) 20%, rgba(0,0,0,0.6) 100%); /* Vignette effect */
+        }
+
+        #content-container {
+            position: relative;
+            z-index: 3;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            pointer-events: none;
+            padding: 20px;
+            box-sizing: border-box;
+        } 
+
+        #rotating-content {
+            color: white;
+            text-align: center;
+            /* Modern text scaling: Min 1.5rem, Preferred 5vw, Max 4rem */
+            font-size: clamp(1.5rem, 5vw, 4rem); 
+            line-height: 1.2;
+            font-weight: 800;
+            text-shadow: 
+                0 4px 10px rgba(0,0,0,0.8),
+                0 0 20px rgba(0,0,0,0.5);
+            
+            /* Smooth fade transition */
+            opacity: 0; 
+            transform: translateY(20px);
+            transition: opacity 1s ease, transform 1s ease;
+            max-width: 1200px;
+        }
+
+        #rotating-content.visible {
+            opacity: 1;
+            transform: translateY(0);
         }
     </style>
 </head>
-<body class="bg-gray-100 min-h-screen">
+<body>
 
-    <!-- Header (Optional) -->
-    <header class="bg-white shadow-sm sticky top-0 z-20">
-        <div class="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-            <h1 class="text-xl font-bold text-gray-800">Gallery</h1>
-            <span class="text-sm text-gray-500" id="count-display">Loading tiles...</span>
-        </div>
-    </header>
-
-    <!-- Main Grid Container -->
-    <main class="max-w-[1600px] mx-auto p-4">
-        <!-- 
-           Grid System:
-           - grid-cols-2: 2 columns on mobile
-           - md:grid-cols-3: 3 columns on tablets
-           - lg:grid-cols-4: 4 columns on laptops
-           - xl:grid-cols-5: 5 columns on desktops
-           - 2xl:grid-cols-6: 6 columns on huge screens
-        -->
-        <div id="gallery-grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
-            <!-- Tiles will be injected here by JavaScript -->
-        </div>
-    </main>
+    <canvas id="bg-canvas"></canvas>
+    <div id="overlay"></div>
+    
+    <div id="content-container">
+        <p id="rotating-content"></p>
+    </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const grid = document.getElementById('gallery-grid');
-            const countDisplay = document.getElementById('count-display');
-            
-            // CONFIGURATION
-            const totalImages = 738; // 1 to 738
-            const folderPath = 'tiles/'; // Ensure this folder exists relative to this file
-            const fileExtension = '.png';
-            
-            // If you have specific links for specific numbers, map them here.
-            // Example: { 1: "https://google.com", 42: "https://example.com" }
-            const customLinks = {}; 
-            
-            // Default link if no custom link is found (currently links to the image itself)
-            // You can change this to '#' to make them just clickable but go nowhere.
-            const defaultLink = '#'; 
+        /* ------------------------------------------------------------
+           DATA SECTION
+           ------------------------------------------------------------ */
+        
+        const totalImages = 738;
+        const randomImageIndex = Math.floor(Math.random() * totalImages) + 1;
+        // Ensure this path matches your folder structure
+        const tileSrc = `tiles/${randomImageIndex}.png`; 
 
-            let validTileCount = 0;
+        const quotes = [
+            '"Two hands working can do more than a thousand clasped in prayer."',
+            '"God must love atheists, considering how many he created."',
+            '"Believe in yourself, not in any god. You are capable of greatness."',
+            '"Atheism: a non-prophet organization."',
+            '"In this universe, the only higher power is science."',
+            '"I\'m an atheist because \'gods\' never answer my prayers for evidence."',
+            '"Atheism: the original free-thought movement."',
+            '"I find comfort in reason, not in unverifiable beliefs."',
+            '"God may be infinite, but evidence for his existence remains elusive."',
+            '"When it comes to gods, I\'m a firm non-believer."',
+            '"Atheism: believing in yourself without divine intervention."',
+            '"I don\'t need a divine map to navigate life."',
+            '"Question everything, believe nothing blindly."',
+            '"Atheism: Unchained minds since forever."',
+            '"God\'s silence speaks louder than prayers."',
+            '"No gods, no masters, just rational thinkers."',
+            '"Atheism: the belief in ourselves, not the divine."',
+            '"Trust in science, not superstition."',
+            '"Atheism: Where reason trumps revelation."',
+            '"I can\'t see any gods, but I see plenty of stars."',
+            '"Faith in humanity over faith in deities."',
+            '"Atheism: no holy books, just open minds."',
+            '"In a world of gods, be an atheist superhero."',
+            '"Atheism: setting minds free, one thought at a time."',
+            '"Gods aren\'t the answers; curiosity is."',
+            '"Atheism: finding beauty in the natural world."',
+            '"Belief in reality, not mythology."',
+            '"Question miracles, embrace science."',
+            '"No divine intervention required."',
+            '"Atheism: where doubt leads to discovery."',
+            '"Skepticism is the guardian of reason."',
+            '"Atheism: the ultimate leap of faithlessness."',
+            '"Free your mind from the chains of ancient myths."',
+            '"Atheism: Because reality is more fascinating than fiction."',
+            '"Religion - a bestseller; Evidence - a timeless classic."',
+            '"I trust evidence, not revelations."',
+            '"Atheism: the natural state of a rational mind."',
+            '"Faith: the absence of evidence, not a virtue."',
+            '"Atheism: no prayers needed, just critical thinking."',
+            '"Doubt is the ally of reason, not the enemy of faith."',
+            '"Gods are myths; human potential is real."',
+            '"Believe in yourself; it\'s the most reliable faith."',
+            '"Atheism: Finding awe in the wonders of reality."',
+            '"Universe: billions of galaxies; gods: no evidence."',
+            '"Atheism: empowering minds to break free."',
+            '"Science explains; gods remain unexplained."',
+            '"Worship reason, not imaginary beings."',
+            '"Atheism: Where the quest for truth begins."',
+            '"Atheism: it\'s a liberating \'No!\' to gods."',
+            '"Question dogmas; seek knowledge."',
+            '"Reality: the only scripture worth reading."',
+            '"Atheism: because humanity needs each other, not gods."',
+            '"Gods fade away; reason endures."',
+            '"Atheism: where imagination meets reality."',
+            '"Gods don\'t hold the answer key to the universe."',
+            '"Faith in humanity, not unseen deities."',
+            '"Atheism: unlocking minds from ancient locks."',
+            '"I put my trust in evidence, not miracles."',
+            '"Believe in your potential, not divine predestination."',
+            '"Atheism: embracing the mysteries of science."',
+            '"No gods, no dogmas, just human compassion."',
+            '"Doubt: the foundation of intellectual growth."',
+            '"In the pursuit of truth, gods fade away."',
+            '"Worship the stars above, not mythical beings."',
+            '"Atheism: the quest for understanding without divine maps."',
+            '"Reason: the light in the darkness of belief."',
+            '"Atheism: it\'s thinking beyond the scriptures."',
+            '"Gods are history; human progress is the future."',
+            '"Believe in the beauty of the natural world."',
+            '"Atheism: where courage faces the unknown."',
+            '"Dare to question, dare to live."',
+            '"Faith in evidence, not ancient traditions."',
+            '"Atheism: the art of thinking freely."',
+            '"Embrace the wonder of existence, not the supernatural."',
+            '"Gods exist only in tales, not reality."',
+            '"Atheism: the absence of gods, the presence of reason."',
+            '"Look to the stars, not the heavens."',
+            '"Question everything, especially the divine."',
+            '"Atheism: where reason and reality collide."',
+            '"Believe in humanity, not heavenly guardians."',
+            '"Faith in evidence, not fairy tales."',
+            '"Atheism: freeing minds, one doubt at a time."',
+            '"Gods are mythical, but human potential is limitless."',
+            '"In science, we trust; in gods, not so much."',
+            '"Atheism: where curiosity conquers dogma."',
+            '"Reality is awe-inspiring enough; no gods required."',
+            '"Question gods, embrace humanity."',
+            '"Atheism: the ultimate act of intellectual rebellion."',
+            '"I kneel to no gods, only to reason."',
+            '"Doubt: the starting point of wisdom."',
+            '"Faith in evidence; skepticism is my guide."',
+            '"Atheism: believe in yourself, not the divine."',
+            '"Gods fade away; knowledge endures."',
+            '"Reality is far more intriguing than religious tales."',
+            '"Atheism: where logic meets liberation."',
+            '"Reason: the compass in the sea of beliefs."',
+            '"Believe in the power of humanity, not gods."',
+            '"Science doesn\'t need faith; it needs evidence."',
+            '"In this universe, we are the architects of meaning."',
+            '"Atheism: where myths unravel, truths emerge."',
+            '"No gods, just human potential."',
+            '"Question the gods; seek the truth."',
+            '"Atheism: embracing reality with open minds."',
+            '"Religion is like a pair of shoes. Find a pair that fits for you, but don\'t make me wear your shoes." - George Carlin',
+            '"I don\'t need god to tell me how to be a good person. If I did, I\'d end up killing people in his name." - Bill Maher',
+            '"Faith is believing what you know ain\'t true." - Mark Twain',
+            '"I believe in the kindness of strangers and the power of love. I don\'t need a god to tell me to be a good person." - Ricky Gervais',
+            '"Religion is like a penis. It\'s fine to have one and be proud of it, but please don\'t wave it in my face and try to shove it down my throat." - Christopher Hitchens',
+            '"I\'m not saying there\'s no god. I\'m saying there\'s no reason to believe in one." - Neil deGrasse Tyson',
+            '"Faith is not a virtue. It\'s the opposite of virtue. It\'s the refusal to think." - Richard Dawkins',
+            '"I\'m not an atheist because I hate god. I\'m an atheist because I don\'t believe there is a god." - Matt Dillahunty',
+            '"Religion is the greatest curse mankind has ever known." - Karl Marx',
+            '"If god exists, he\'s a malevolent bastard." - Christopher Hitchens',
+            '"I\'m not an atheist because I\'m angry at god. I\'m an atheist because I\'m not convinced he exists." - Victor Stenger',
+            '"Religion is the fear of the unknown and the desire to feel like you belong to something larger than yourself." - Sam Harris',
+            '"I\'m not an atheist because I\'m afraid of hell. I\'m an atheist because I\'m not afraid to think." - Penn Jillette',
+            '"Religion is the opiate of the masses." - Karl Marx',
+            '"I\'m not an atheist because I hate the church. I\'m an atheist because I don\'t believe in god." - Ricky Gervais',
+            '"Religion is like a pair of crutches. It can help you when you\'re weak, but it\'s a burden when you\'re strong." - Mark Twain',
+            '"I\'m not an atheist because I\'m stupid. I\'m an atheist because I\'m smart." - Christopher Hitchens',
+            '"Religion is the reason there are so many wars in the world." - Sam Harris',
+            '"I\'m not an atheist because I\'m lazy. I\'m an atheist because I\'m curious." - Neil deGrasse Tyson',
+            '"Religion is the reason there are so many poor people in the world." - Richard Dawkins',
+            '"I\'m not an atheist because I\'m angry. I\'m an atheist because I\'m compassionate." - Matt Dillahunty',
+            '"Religion is the reason there are so many ignorant people in the world." - Victor Stenger',
+            '"I\'m not an atheist because I\'m afraid. I\'m an atheist because I\'m brave." - Sam Harris',
+            '"Religion is the reason there are so many bigoted people in the world." - Penn Jillette',
+            '"I\'m not an atheist because I\'m rebellious. I\'m an atheist because I\'m independent." - Ricky Gervais',
+            '"Religion is the reason there are so many hateful people in the world." - Christopher Hitchens',
+            '"I\'m not an atheist because I\'m cynical. I\'m an atheist because I\'m realistic." - Sam Harris',
+            '"Religion is the reason there are so many closed-minded people in the world." - Neil deGrasse Tyson',
+            '"I\'m not an atheist because I\'m lost. I\'m an atheist because I\'ve found my own way." - Richard Dawkins',
+            '"Religion is the reason there are so many divided people in the world." - Matt Dillahunty',
+            '"I\'m not an atheist because I\'m arrogant. I\'m an atheist because I\'m humble." - Victor Stenger',
+            '"Religion is the reason there are so many people who are unable to think for themselves." - Sam Harris',
+            '"I\'m not an atheist because I\'m evil. I\'m an atheist because I\'m good." - Penn Jillette',
+            '"Religion is the reason there are so many people who are willing to believe in things that are clearly not true." - Ricky Gervais',
+            '"I\'m not an atheist because I\'m insane. I\'m an atheist because I\'m sane." - Christopher Hitchens',
+            '"Religion is like a pair of glasses. It can help you see things more clearly, but it can also distort your view." - Unknown',
+            '"I\'m not an atheist because I don\'t believe in god. I\'m an atheist because there is no evidence for his existence." - Stephen Hawking',
+            '"Faith is the great cop-out, the great excuse to evade the need to think and evaluate evidence. Faith is the great enabler of religious delusion and bigotry." - Sam Harris',
+            '"I\'m not an atheist because I hate the church. I\'m an atheist because I don\'t believe in god." - Richard Dawkins',
+            '"Religion is a superstition that has been dressed up in a fancy robe." - Mark Twain',
+            '"I\'m not an atheist because I\'m arrogant. I\'m an atheist because I\'m humble." - Christopher Hitchens',
+            '"I\'m not an atheist because I\'m afraid of hell. I\'m an atheist because I\'m not afraid to think." - Bill Maher',
+            '"I\'m not an atheist because I\'m angry at god. I\'m an atheist because I don\'t believe there is a god." - Matt Dillahunty',
+            '"I\'m not an atheist because I\'m not convinced god exists. I\'m an atheist because I\'m convinced he doesn\'t exist." - Victor Stenger',
+            '"I\'m not an atheist because I\'m afraid of death. I\'m an atheist because I\'m not afraid to live." - Penn Jillette',
+            '"Religion is the reason there are so many people who are willing to hurt others in the name of their god." - Sam Harris',
+            '"I\'m not an atheist because I don\'t believe in god. I\'m an atheist because I don\'t believe in religion." - Richard Dawkins',
+            '"Faith is believing what you know ain\'t true. When you know what you know, you ain\'t gotta have faith." - Mark Twain',
+            '"I\'m not an atheist because I don\'t pray. I\'m an atheist because I don\'t believe in god." - Matt Dillahunty',
+            '"Religion is the reason there are so many people who are afraid to question the world around them." - Victor Stenger',
+            '"Religion is the reason there are so many people who are unable to distinguish between fact and fiction." - Sam Harris',
+            '"I\'m not an atheist because I don\'t believe in miracles. I\'m an atheist because I don\'t believe in magic." - Penn Jillette',
+            '"Religion is the reason there are so many people who are willing to sacrifice their own happiness for the sake of their god." - Ricky Gervais',
+            '"I\'m not an atheist because I don\'t believe in love. I\'m an atheist because I don\'t believe in god." - Christopher Hitchens',
+            '"Religion is the reason there are so many people who are willing to kill others in the name of their god." - Sam Harris',
+            '"I\'m not an atheist because I don\'t believe in hope. I\'m an atheist because I don\'t believe in god." - Richard Dawkins',
+            '"Faith is believing what you know ain\'t true. It\'s the denial of reason and evidence. It\'s the opposite of science." - Mark Twain',
+            '"I\'m not an atheist because I don\'t believe in good and evil. I\'m an atheist because I don\'t believe in god." - Matt Dillahunty',
+            '"Religion is the reason there are so many people who are unable to think critically about their beliefs." - Victor Stenger',
+            '"I\'m not an atheist because I don\'t believe in morality. I\'m an atheist because I don\'t believe in god." - Sam Harris',
+            '"Religion is the reason there are so many people who are willing to believe in absurdities." - Penn Jillette',
+            '"I\'m not an atheist because I don\'t believe in the beauty of the natural world. I\'m an atheist because I don\'t believe in god." - Ricky Gervais',
+            '"Religion is the reason there are so many people who are unable to appreciate the wonders of science." - Christopher Hitchens',
+            '"I\'m not an atheist because I\'m not grateful for my life. I\'m an atheist because I don\'t believe in god." - Sam Harris',
+            '"Religion is the reason there are so many people who are unable to live their lives to the fullest." - Richard Dawkins',
+            '"Faith is believing what you know ain\'t true. It\'s the reason there are so many people who believe in things like the Bible, even though it\'s full of contradictions and absurdities." - Mark Twain',
+            '"I\'m not an atheist because I don\'t believe in the power of love. I\'m an atheist because I don\'t believe in god." - Matt Dillahunty',
+            '"Religion is the reason there are so many people who are unable to accept the reality of death." - Victor Stenger',
+            '"I\'m not an atheist because I\'m not afraid of the unknown. I\'m an atheist because I\'m not afraid to face it." - Sam Harris',
+            '"Religion is the reason there are so many people who are unable to think for themselves." - Penn Jillette',
+            '"I\'m not an atheist because I\'m not grateful for all the good things in my life. I\'m an atheist because I know that those good things don\'t require a god to exist." - Ricky Gervais',
+            '"Religion is the reason there are so many people who are unable to appreciate the beauty of the natural world without attributing it to a creator." - Christopher Hitchens',
+            '"I\'m not an atheist because I\'m not happy. I\'m an atheist because I\'m honest." - Sam Harris',
+            '"Religion is the reason there are so many people who are unable to live their lives without the fear of hell or the hope of heaven." - Richard Dawkins',
+            '"Faith is believing what you know ain\'t true. It\'s the reason there are so many people who believe in things like intelligent design, even though there is no scientific evidence to support it." - Mark Twain',
+            '"I\'m not an atheist because I don\'t believe in the power of good. I\'m an atheist because I don\'t believe in god." - Matt Dillahunty',
+            '"Religion is the reason there are so many people who are unable to accept the reality of evolution." - Victor Stenger',
+            '"I\'m not an atheist because I\'m not grateful for the gift of life. I\'m an atheist because I know that life is a precious gift that should be cherished and enjoyed, not wasted on religious dogma." - Sam Harris',
+            '"Religion is the reason there are so many people who are unable to see the world for what it really is." - Penn Jillette',
+            '"Religion is the reason there are so many people who are unable to accept the reality of climate change." - Christopher Hitchens',
+            '"I\'m not an atheist because I don\'t believe in the power of love and compassion. I\'m an atheist because I know that those qualities can exist without the need for a god." - Sam Harris',
+            '"Religion is the reason there are so many people who are unable to think for themselves and question the authority figures in their lives." - Richard Dawkins',
+            '"Faith is believing what you know ain\'t true. It\'s the reason there are so many people who believe in things like homeopathy and healing crystals, even though there is no scientific evidence to support their claims." - Mark Twain',
+            '"I\'m not an atheist because I don\'t believe in the power of community. I\'m an atheist because I know that community can exist without the need for a god." - Matt Dillahunty',
+            '"Religion is the reason there are so many people who are unable to accept the reality of science and the natural world." - Victor Stenger',
+            '"I\'m not an atheist because I don\'t believe in the power of the human spirit. I\'m an atheist because I know that the human spirit can endure without the need for a god." - Sam Harris',
+            '"Religion is the reason there are so many people who are unable to see the beauty and wonder of the universe without attributing it to a creator." - Richard Dawkins',
+            '"Faith is believing what you know ain\'t true. It\'s the reason there are so many people who believe in things like miracles and prayer, even though there is no scientific evidence to support their claims." - Mark Twain',
+            '"I\'m not an atheist because I don\'t believe in the power of love to overcome hate. I\'m an atheist because I know that love can exist without the need for a god." - Matt Dillahunty',
+            '"Religion is the reason there are so many people who are unable to accept the reality of death and the fact that this life is all we have." - Victor Stenger',
+            '"I\'m not an atheist because I don\'t believe in the power of the human mind. I\'m an atheist because I know that the human mind can create its own meaning and purpose without the need for a god." - Sam Harris',
+            '"Religion is the reason there are so many people who are unable to see the world for what it really is: a beautiful and complex place that is full of wonder and mystery, but also full of suffering and injustice." - Richard Dawkins',
+            '"Faith is believing what you know ain\'t true. It\'s the reason there are so many people who believe in things like heaven and hell, even though there is no scientific evidence to support their claims." - Mark Twain',
+            '"I\'m not an atheist because I don\'t believe in the power of kindness and compassion. I\'m an atheist because I know that those qualities can exist without the need for a god." - Matt Dillahunty',
+            '"Religion is the reason there are so many people who are unable to see the world as it really is: a place where good things happen to bad people and bad things happen to good people." - Victor Stenger',
+            '"I\'m not an atheist because I don\'t believe in the power of the human spirit to persevere in the face of adversity. I\'m an atheist because I know that the human spirit can endure without the need for a god." - Sam Harris',
+            '"Religion is the reason there are so many people who are unable to see the beauty and wonder of the natural world without attributing it to a creator." - Richard Dawkins',
+            '"I find a deep and abiding comfort in the beauty of the natural world. It is a constant source of wonder and inspiration for me." - Carl Sagan',
+            '"The natural world is full of beauty and wonder. It is a place where we can find peace and solace, and where we can connect with something larger than ourselves." - Richard Dawkins',
+            '"The universe is a vast and mysterious place, and we are but a tiny speck within it. But that doesn\'t mean that we are insignificant. Our existence is a miracle, and we should cherish every moment of it." - Neil deGrasse Tyson',
+            '"The beauty of the natural world is a constant reminder of the wonder and mystery of existence. It is a place where we can find awe and inspiration, and where we can connect with something larger than ourselves." - Sam Harris'
+        ];
 
-            // Generate the grid
-            for (let i = 1; i <= totalImages; i++) {
-                
-                // 1. Create the Anchor Link Wrapper
-                const linkWrapper = document.createElement('a');
-                // Use custom link if it exists, otherwise use the image source or default
-                linkWrapper.href = customLinks[i] || defaultLink; 
-                linkWrapper.className = 'tile-card block relative bg-white rounded-lg overflow-hidden shadow-sm aspect-square group';
-                
-                // Add an ID for easy reference later
-                linkWrapper.id = `tile-${i}`;
-
-                // 2. Create the Image Element
-                const img = document.createElement('img');
-                img.src = `${folderPath}${i}${fileExtension}`;
-                img.alt = `Tile ${i}`;
-                img.className = 'w-full h-full object-cover'; // Ensures image fills the square
-                img.loading = 'lazy'; // PERFORMANCE: Only load images when scrolled into view
-                
-                // 3. Error Handling (Crucial for large sets)
-                // If 5.png is missing, this removes the entire tile so there's no broken gap
-                img.onerror = function() {
-                    console.warn(`Missing image: ${this.src}`);
-                    linkWrapper.remove(); 
-                    updateCount(--validTileCount);
-                };
-
-                // 4. Success Handling (Animation)
-                img.onload = function() {
-                    img.classList.add('tile-animate');
-                };
-
-                // 5. Overlay (Optional: Shows number on hover)
-                const overlay = document.createElement('div');
-                overlay.className = 'absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-300 flex items-center justify-center';
-                const numberText = document.createElement('span');
-                numberText.className = 'text-white opacity-0 group-hover:opacity-100 font-bold text-lg drop-shadow-md';
-                numberText.innerText = `#${i}`;
-                overlay.appendChild(numberText);
-
-                // Assemble
-                linkWrapper.appendChild(img);
-                linkWrapper.appendChild(overlay);
-                grid.appendChild(linkWrapper);
-                
-                validTileCount++;
+        /* ------------------------------------------------------------
+           TEXT ROTATION LOGIC
+           ------------------------------------------------------------ */
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
             }
+        }
 
-            // Update the counter in header
-            function updateCount(count) {
-                countDisplay.innerText = `${count} Tiles`;
-            }
-            updateCount(validTileCount);
+        shuffleArray(quotes);
+
+        const rotatingContent = document.getElementById("rotating-content");
+        let currentQuoteIndex = 0;
+
+        function updateQuote() {
+            // Fade out
+            rotatingContent.classList.remove('visible');
+            
+            setTimeout(() => {
+                // Change text
+                rotatingContent.textContent = quotes[currentQuoteIndex];
+                currentQuoteIndex = (currentQuoteIndex + 1) % quotes.length;
+                
+                // Fade in
+                rotatingContent.classList.add('visible');
+            }, 1000); // Wait for fade out to finish
+        }
+
+        // Init Text
+        updateQuote();
+        setInterval(updateQuote, 9000);
+
+        /* ------------------------------------------------------------
+           CANVAS & ANIMATION LOGIC
+           ------------------------------------------------------------ */
+        const canvas = document.getElementById('bg-canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Physics State
+        let pos = { x: 0, y: 0 };
+        let velocity = { x: 0.5, y: 0.5 }; // Initial slow drift
+        let rotation = 0; // Degrees
+        let rotationSpeed = 0.02; 
+        let scale = 1.0;
+        
+        // Touch/Mouse State
+        let isDragging = false;
+        let isPinching = false;
+        let lastMouse = { x: 0, y: 0 };
+        
+        // Variables for Pinch Zoom
+        let initialPinchDistance = 0;
+        let initialScale = 1.0;
+        
+        // Load Image
+        const img = new Image();
+        img.src = tileSrc;
+        let pattern = null;
+
+        img.onload = () => {
+            // Create the repeatable pattern
+            pattern = ctx.createPattern(img, 'repeat');
+            resize();
+            animate();
+        };
+
+        img.onerror = () => {
+             // Fallback if image fails (avoids blank screen)
+            ctx.fillStyle = '#222';
+            ctx.fillRect(0,0,canvas.width, canvas.height);
+            console.error("Image failed to load:", tileSrc);
+        }
+
+        // Resize handler
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+
+        /* ------------------------------------------------------------
+           INPUT HANDLERS (MOUSE & TOUCH & ZOOM)
+           ------------------------------------------------------------ */
+        
+        // Helper: Distance between two touch points
+        function getDistance(touch1, touch2) {
+            const dx = touch1.clientX - touch2.clientX;
+            const dy = touch1.clientY - touch2.clientY;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        // --- Mouse Events ---
+        
+        window.addEventListener('mousedown', e => {
+            isDragging = true;
+            lastMouse = { x: e.clientX, y: e.clientY };
         });
+
+        window.addEventListener('mousemove', e => {
+            if (!isDragging) return;
+            
+            // Calculate delta
+            const dx = e.clientX - lastMouse.x;
+            const dy = e.clientY - lastMouse.y;
+            
+            // Influence velocity (steering)
+            // We divide by scale so dragging feels consistent at different zoom levels
+            velocity.x += (dx * 0.05) / scale; 
+            velocity.y += (dy * 0.05) / scale;
+
+            lastMouse = { x: e.clientX, y: e.clientY };
+        });
+
+        window.addEventListener('mouseup', () => isDragging = false);
+        window.addEventListener('mouseleave', () => isDragging = false); // Stop dragging if mouse leaves window
+
+        // --- Wheel Zoom (Desktop) ---
+        window.addEventListener('wheel', e => {
+            // e.deltaY is usually +/- 100
+            // Adjusted sensitivity for smoother zoom
+            const zoomFactor = e.deltaY * -0.0005; 
+            
+            // Clamp scale between 0.2 (zoomed out far) and 5.0 (zoomed in close)
+            scale = Math.min(Math.max(0.2, scale + zoomFactor), 5.0);
+            
+            // Subtly affect rotation speed based on scroll interaction
+            rotationSpeed += e.deltaY * 0.00005;
+        });
+
+        // --- Touch Events (Multitouch Support) ---
+
+        window.addEventListener('touchstart', e => {
+            if (e.touches.length === 1) {
+                // Single touch = Drag
+                isDragging = true;
+                isPinching = false;
+                lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            } else if (e.touches.length === 2) {
+                // Double touch = Pinch Zoom
+                isDragging = false; // Stop dragging to avoid conflict
+                isPinching = true;
+                initialPinchDistance = getDistance(e.touches[0], e.touches[1]);
+                initialScale = scale;
+            }
+        }, {passive: false});
+
+        window.addEventListener('touchmove', e => {
+            if (e.touches.length === 1 && isDragging) {
+                // Drag Logic
+                const dx = e.touches[0].clientX - lastMouse.x;
+                const dy = e.touches[0].clientY - lastMouse.y;
+                
+                velocity.x += (dx * 0.05) / scale; 
+                velocity.y += (dy * 0.05) / scale;
+
+                lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            } else if (e.touches.length === 2 && isPinching) {
+                // Pinch Zoom Logic
+                e.preventDefault(); // Prevent browser native zoom
+                const currentDistance = getDistance(e.touches[0], e.touches[1]);
+                
+                if (initialPinchDistance > 0) {
+                    // Calculate ratio
+                    const zoomChange = currentDistance / initialPinchDistance;
+                    
+                    // Apply to initial scale (clamped)
+                    scale = Math.min(Math.max(0.2, initialScale * zoomChange), 5.0);
+                }
+            }
+            
+            // Prevent default scroll behavior on mobile
+            if(e.cancelable) e.preventDefault(); 
+        }, {passive: false});
+
+        window.addEventListener('touchend', e => {
+            // If fingers are lifted, reset states
+            if (e.touches.length === 0) {
+                isDragging = false;
+                isPinching = false;
+            } else if (e.touches.length === 1) {
+                // Transitioning from 2 fingers to 1 finger? 
+                // Treat as new drag start to prevent jumps
+                isPinching = false;
+                isDragging = true;
+                lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            }
+        });
+
+
+        /* ------------------------------------------------------------
+           RENDER LOOP
+           ------------------------------------------------------------ */
+        function animate() {
+            // 1. Clear Screen
+            ctx.fillStyle = '#111';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if(pattern) {
+                // 2. Update Physics
+                pos.x += velocity.x;
+                pos.y += velocity.y;
+                rotation += rotationSpeed;
+
+                // Friction (slowly dampen speed if user isn't dragging)
+                if(!isDragging && !isPinching) {
+                    velocity.x *= 0.98; // Friction
+                    velocity.y *= 0.98;
+                    
+                    // Maintain a tiny minimum drift so it never fully stops
+                    if (Math.abs(velocity.x) < 0.2) velocity.x = (velocity.x > 0 ? 0.2 : -0.2);
+                    if (Math.abs(velocity.y) < 0.2) velocity.y = (velocity.y > 0 ? 0.2 : -0.2);
+                }
+
+                // 3. Transformation Matrix
+                ctx.save();
+                
+                // Move origin to center of screen
+                ctx.translate(canvas.width / 2, canvas.height / 2);
+                
+                // Apply Rotation and Scale
+                ctx.rotate(rotation * Math.PI / 180);
+                ctx.scale(scale, scale);
+                
+                // Apply Translation (The Panning)
+                ctx.translate(pos.x, pos.y);
+
+                // 4. Draw Pattern
+                // We draw a rectangle MASSIVE enough to cover the screen at any rotation/scale
+                const bigSize = Math.max(canvas.width, canvas.height) * 3 / scale;
+                
+                ctx.fillStyle = pattern;
+                // Draw rectangle centered on the new origin
+                // We offset coordinates to create the illusion of infinite scrolling
+                // The large negative values ensure we cover the "backwards" direction too
+                ctx.fillRect(-bigSize, -bigSize, bigSize * 2, bigSize * 2);
+
+                ctx.restore();
+            }
+
+            requestAnimationFrame(animate);
+        }
+
     </script>
 </body>
 </html>
+
 
